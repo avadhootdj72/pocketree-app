@@ -7,6 +7,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // The family invite page is its own page and always comes fresh from the web.
+  if (url.pathname.endsWith('/join.html')) return;
   e.respondWith(caches.open(CACHE).then(async cache => {
     const key = req.mode === 'navigate' ? new URL('./', self.registration.scope).href : req;
     const hit = await cache.match(key, { ignoreSearch: req.mode === 'navigate' });

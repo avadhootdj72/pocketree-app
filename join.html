@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join a Pocketree family</title>
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --brand:#0f766e; --bg:#f4f6f5; --card:#fff; --text:#1f2a28; --muted:#5b6b67; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --brand:#2bb3a3; --bg:#101615; --card:#1a2321; --text:#e7eeec; --muted:#9db0ab; --err:#f97066; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Roboto,sans-serif; }
+  header { background:var(--brand); color:#fff; padding:20px 16px; }
+  header h1 { margin:0; font-size:22px; }
+  main { max-width:520px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:16px; padding:18px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .step { display:flex; gap:12px; }
+  .n { flex:0 0 28px; height:28px; border-radius:50%; background:var(--brand); color:#fff; display:grid; place-items:center; font-weight:600; }
+  .done .n { background:#15803d; }
+  button, a.btn { display:inline-block; border:0; border-radius:999px; background:var(--brand); color:#fff; padding:12px 20px;
+    font:600 16px system-ui,sans-serif; margin-top:10px; text-decoration:none; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--brand); border:1.5px solid var(--brand); }
+  button:disabled { opacity:.5; }
+  a { color:var(--brand); }
+  p { margin:6px 0; } .muted { color:var(--muted); font-size:14px; } .err { color:var(--err); }
+</style>
+</head>
+<body>
+<header><h1>Join a Pocketree family</h1></header>
+<main>
+  <div class="card" id="bad" hidden><p class="err">This link is not complete. Ask for the invite link again.</p></div>
+  <div id="steps">
+    <div class="card"><p id="from">You were invited to share a money book on Pocketree.</p>
+      <p class="muted">Pocketree keeps the family book in Google Drive, locked with a family key. Pocketree only sees the files it made or that you pick.</p></div>
+    <div class="card step" id="s1"><div class="n">1</div><div>
+      <p><b>Install Pocketree</b></p>
+      <p class="muted">Android: get it from Google Play. iPhone: open <a href="./">Pocketree</a> in Safari, tap Share, then "Add to Home Screen".</p>
+    </div></div>
+    <div class="card step" id="s2"><div class="n">2</div><div>
+      <p><b>Give Pocketree access to the family book</b></p>
+      <p class="muted">Sign in with the Gmail the invite was sent to, then pick "Pocketree family book". You do this once.</p>
+      <button id="give">Give access</button>
+      <p id="msg" class="muted"></p>
+    </div></div>
+    <div class="card step" id="s3"><div class="n">3</div><div>
+      <p><b>Join in the app</b></p>
+      <p class="muted">Copy the invite, open Pocketree, go to More, then Family, then "Join a family", and paste it.</p>
+      <button id="copy" class="ghost">Copy invite</button>
+    </div></div>
+  </div>
+</main>
+<script>
+// Pocketree Google Cloud project (pocketree.app@gmail.com). None of these are secrets.
+const CLIENT_ID = '897108047447-kjfufkg0o4qs9r0ia6evjdpdne3ma01p.apps.googleusercontent.com';
+const APP_ID = '897108047447';
+const API_KEY = 'PICKER_API_KEY'; // Picker API key, limited to this site
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+const code = location.hash.slice(1);
+let invite = null;
+try {
+  const s = code.replace(/-/g, '+').replace(/_/g, '/');
+  invite = JSON.parse(atob(s + '='.repeat((4 - s.length % 4) % 4)));
+} catch (e) {}
+const $ = (id) => document.getElementById(id);
+if (!invite || !invite.f || !invite.k) { $('bad').hidden = false; $('steps').hidden = true; }
+else if (invite.o) $('from').textContent = invite.o + ' invited you to share a money book on Pocketree.';
+
+function load(src) {
+  return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); });
+}
+const msg = (t, err) => { $('msg').textContent = t; $('msg').className = err ? 'err' : 'muted'; };
+
+$('give').onclick = async () => {
+  $('give').disabled = true;
+  msg('Opening Google...');
+  try {
+    await Promise.all([load('https://accounts.google.com/gsi/client'), load('https://apis.google.com/js/api.js')]);
+    await new Promise((ok) => gapi.load('picker', ok));
+    const token = await new Promise((ok, fail) => {
+      google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID, scope: SCOPE,
+        callback: (r) => r.error ? fail(new Error(r.error)) : ok(r.access_token),
+        error_callback: (e) => fail(new Error(e.type || 'cancelled')),
+      }).requestAccessToken();
+    });
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS).setFileIds(invite.f).setMode(google.picker.DocsViewMode.LIST);
+    const picked = await new Promise((ok) => {
+      new google.picker.PickerBuilder()
+        .setAppId(APP_ID).setOAuthToken(token).setDeveloperKey(API_KEY)
+        .addView(view).setTitle('Pick "Pocketree family book"')
+        .setCallback((d) => {
+          if (d.action === google.picker.Action.PICKED) ok(d.docs.map((x) => x.id));
+          else if (d.action === google.picker.Action.CANCEL) ok([]);
+        })
+        .build().setVisible(true);
+    });
+    if (picked.includes(invite.f)) {
+      $('s2').classList.add('done');
+      msg('Done. Pocketree can now open the family book.');
+    } else if (picked.length) {
+      msg('That is a different file. Tap "Give access" again and pick "Pocketree family book".', true);
+    } else {
+      msg('Nothing picked. Tap "Give access" to try again.', true);
+    }
+  } catch (e) {
+    msg("Couldn't finish: " + (e && e.message || e) + '. Check you are signed in with the invited Gmail and try again.', true);
+  } finally {
+    $('give').disabled = false;
+  }
+};
+
+$('copy').onclick = async () => {
+  const text = location.href;
+  try { await navigator.clipboard.writeText(text); $('copy').textContent = 'Copied'; }
+  catch (e) { prompt('Copy this invite:', text); }
+};
+</script>
+</body>
+</html>
